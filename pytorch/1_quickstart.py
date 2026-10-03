@@ -114,6 +114,57 @@ def test(dataloader, model, loss_fn):
     num_batches = len(dataloader)
     model.eval()
     test_loss, correct = 0, 0
+    '''
+
+┌───────────────────────┬──────────────────────────────────┬───────────────────────────────────┬──────────────────────────────────────────────────────────────────┐
+│       Mechanism       │             Acts on              │               Lasts               │                              Effect                              │
+├───────────────────────┼──────────────────────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────────────────┤
+│ requires_grad_(False) │ a tensor or parameter (the leaf) │ permanent, until you flip it back │ No gradient is computed for that tensor.                         │
+├───────────────────────┼──────────────────────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────────────────┤
+│ detach()              │ one tensor, producing a new one  │ that new tensor only              │ Cuts the graph at that point. The original is unchanged.         │
+├───────────────────────┼──────────────────────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────────────────┤
+│ no_grad()             │ a block of code                  │ inside the block                  │ Nothing computed there is recorded.                              │
+├───────────────────────┼──────────────────────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────────────────┤
+│ inference_mode()      │ a block of code                  │ inside the block                  │ Same as no_grad, but faster and stricter.                        │
+├───────────────────────┼──────────────────────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────────────────┤
+│ model.eval()          │ the model's layers               │ until .train()                    │ Not about gradients. It changes dropout and batchnorm behaviour. │
+└───────────────────────┴──────────────────────────────────┴───────────────────────────────────┴──────────────────────────────────────────────────────────────────┘
+
+    pytorch/torch_venv/lib/python3.12/site-packages/torch/autograd/grad_mode.py 
+
+    "no_grad",
+    "enable_grad",
+    "set_grad_enabled",
+    "inference_mode",
+    "set_multithreading_enabled",
+    "enforce_grad_layout_policy"
+
+    no_grad:
+    model.eval() is not an alternative. It switches dropout and batchnorm behaviour but doesn't stop gradient tracking, so you normally use it together with no_grad or inference_mode.
+    alternative: .detach(): This cuts a single tensor out of the graph, which is useful for logging or for using a value as a constant. For example, loss.detach() or x.detach().cpu().
+    itorch.inference_mode()
+    inference_mode is faster, but its output tensors can never be used in autograd later. no_grad is slightly slower, and its outputs can still be used in training afterwards
+
+    detach() gives you a copy of a tensor that has forgotten how it was computed, requires_grad=False,. It shares the same data, but it's no longer connected to the graph.
+    Without detach(), one of two things happens, depending on the case.
+        Logging losses: Stored tensors keep their graph alive. The leak is small when you call backward() each step and large when you don't.
+        GAN-style cases: gradients flow into places you didn't intend. For example, the discriminator's loss also computes gradients for the generator, which wastes compute and can silently corrupt the training. You wouldn't get an error, just worse results, or a "backward through the graph a second time" error if the graph was already freed.
+
+
+    "Context-manager that disables gradient calculation.
+
+    Disabling gradient calculation is useful for inference, when you are sure
+    that you will not call :meth:`Tensor.backward()`. It will reduce memory
+    consumption for computations that would otherwise have `requires_grad=True`.
+
+    In this mode, the result of every computation will have
+    `requires_grad=False`, even when the inputs have `requires_grad=True`.
+    There is an exception! All factory functions, or functions that create
+    a new Tensor and take a requires_grad kwarg, will NOT be affected by
+    this mode.
+
+    This context manager is thread local; it will not affect computation
+    in other threads.'''
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
@@ -130,3 +181,30 @@ for t in range(epochs):
     train(train_dataloader, model, loss_fn, optimizer)
     test(test_dataloader, model, loss_fn)
 print("Done!")
+
+torch.save(model.state_dict(), "model.pth")
+print("Saved PyTorch Model State to model.pth")
+
+model = NeuralNetwork().to(device)
+model.load_state_dict(torch.load("model.pth", weights_only=True))
+
+classes = [
+    "T-shirt/top",
+    "Trouser",
+    "Pullover",
+    "Dress",
+    "Coat",
+    "Sandal",
+    "Shirt",
+    "Sneaker",
+    "Bag",
+    "Ankle boot",
+]
+
+model.eval()
+x, y = test_data[0][0], test_data[0][1]
+with torch.no_grad():
+    x = x.to(device)
+    pred = model(x)
+    predicted, actual = classes[pred[0].argmax(0)], classes[y]
+    print(f'Predicted: "{predicted}", Actual: "{actual}"')
