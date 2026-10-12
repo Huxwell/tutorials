@@ -15,3 +15,8 @@
 
 ## Answers
 - Prefer short answers. Beware that the user may only read part of your answer if it's long and a debugging loop is fast&intense.
+
+## Python environments
+- Use `uv` (installed at `~/.local/bin/uv`) for venvs and packages.
+- Put venvs in visible, named folders (e.g. `pytorch/torch_venv`), not hidden ones like `.venv`.
+- GPU is a GTX 1080 (Pascal, sm_61): use PyTorch `cu126` wheels (`--index-url https://download.pytorch.org/whl/cu126`); cu128+ dropped Pascal.
